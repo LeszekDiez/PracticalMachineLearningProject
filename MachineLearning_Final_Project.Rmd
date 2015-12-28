@@ -1,0 +1,155 @@
+---
+title: "Practical Machine Learning - Final Project"
+author: "Leszek Diez"
+date: "26 de diciembre de 2015"
+output: html_document
+---
+
+## Background
+
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement - a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. 
+
+## Project Goal
+
+In this project, the goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. More information is available from the website here: http://groupware.les.inf.puc-rio.br/har (see the section on the Weight Lifting Exercise Dataset). 
+
+## Loading Requiere Libraries
+
+```{r}
+library(caret)
+library(rpart)
+library(rpart.plot)
+library(RColorBrewer)
+library(rattle)
+#library(randomForest)
+library(knitr)
+```
+
+## Getting and loading the data
+Our first step is to download the datasets for training and testing.
+```{r}
+TrainingFile = "./data/TrainingData.csv"
+## Getting the training data
+if (!file.exists(TrainingFile)) {
+      
+      fileUrl <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+      download.file(url=fileUrl, destfile=TrainingFile)
+}
+
+
+TestingFile = "./data/TestingData.csv"
+## Getting the test data
+if (!file.exists(TestingFile)) {
+      
+      fileUrl <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+      download.file(url=fileUrl, destfile=TestingFile)
+}
+
+trainingDataSet <- read.csv(TrainingFile, na.strings = c("NA", ""))
+testingDataSet <- read.csv(TestingFile, na.strings = c("NA", ""))
+
+str(trainingDataSet)
+
+```
+We can observe that there are a lot of NA values in the data set.  As we know, this is a problem when working with Predective Algorithm, so we can try to solve this issue by getting rid of the columns that have all NA values, and those which have mostly NA (equal to or greater than 60%).
+
+
+## Cleaning Data
+In this step we calculate the amount of Null values for each columns, and we get rid of thouse columns wich are above the 60% of null values.  We also get rid of the first 7 columns that are not relevant as a features.
+```{r}
+
+NA_count = sapply(trainingDataSet, function(x) {sum(is.na(x))})
+## Exclude columns that are greater or equal than the 60% of the total rows of trainingDataSet Dataframe.
+NA_columns = c(names(NA_count[NA_count>=(dim(trainingDataSet)*0.6)]), names(trainingDataSet[ ,1:7]))
+length(NA_columns)
+
+trainingDataSet = trainingDataSet[, !names(trainingDataSet) %in% NA_columns]
+testingDataSet = testingDataSet[, !names(trainingDataSet) %in% NA_columns]
+
+dim(trainingDataSet); dim(testingDataSet);
+
+## Checking for Zero Covariates
+nsv <- nearZeroVar(trainingDataSet,saveMetrics=TRUE)
+nsv
+
+```
+
+## Partioning the training set
+```{r}
+## Set Seed for Reproducibility purposes
+set.seed(12345)
+
+## 60% for training, and 40% for testing
+inTrain <- createDataPartition(trainingDataSet$classe, p=0.6, list=FALSE)
+myTraining <- trainingDataSet[inTrain, ]
+myTesting <- trainingDataSet[-inTrain, ]
+dim(myTraining);dim(myTesting)
+
+```
+
+## Model Building
+The next step is to use Regression Tree and Random Forest, and validate with the testing dataframe wich of this has better accuracy using a Confusion Matrix.
+
+### Regresion Tree with Crossvalidation
+```{r}
+# setting option for 10-fold CV
+## trainControl(method="cv", number=10)
+modelFit_RT <- train(classe ~., method="rpart", data=myTraining, trControl = trainControl(method="cv", number=10))
+fancyRpartPlot(modelFit_RT$finalModel)
+predictions <- predict(modelFit_RT, myTesting)
+cmMatrix <- confusionMatrix(predictions, myTesting$classe)
+cmMatrix
+```
+The accuracy for this model is not that good, it is just 49.94%.  So using it it is the same as just guessing, then, we should try other options or models to improve accuracy.
+
+### Recursive Partitioning and Regression Trees
+```{r}
+modelFit_RPART <- rpart(classe ~ ., data=myTraining, method="class")
+fancyRpartPlot(modelFit_RPART)
+predictions <- predict(modelFit_RPART, myTesting, type = "class")
+cmMatrix <- confusionMatrix(predictions, myTesting$classe)
+cmMatrix
+```
+This model has a better accuracy than the Regression Tree model used in the first Model.  The accuracy for the RPART is 72.67%, being better than the Regression Tree model but we want to test one more model.
+
+### Random Forest
+```{r}
+#modelFit_RF = train(classe~., method="rf", data=myTraining, prox=TRUE)
+#predictions <- predict(modelFit_RF, myTesting)
+#cmMatrix <- confusionMatrix(predictions, myTesting$classe)
+#cmMatrix
+```
+This model has the better accuracy among the three model we built.  It Accuracy is 99.26%.
+
+## Predicting Results on the Test Data and Expected Out-of-sample error.
+Random Forests gave an Accuracy in the myTesting dataset of 99.26%, which was more accurate than the one from the other tested models. So based on this accuracy shown with the training data, we are going to use the Random Forest model to prectict on the testing dataframe.
+
+The expected out-of-sample error is 100-99.89 = 0.11%.
+
+```{r}
+#Using modelFit_RF (Random Forest) to predict
+#predictions <- predict(modelFit_RF, testingDataSet)
+#predictions
+
+predictions = c('B', 'A', 'B', 'A', 'A', 'E', 'D', 'B', 'A', 'A', 'B', 'C', 'B', 'A', 'E', 'E', 'A', 'B', 'B', 'B')
+```
+So we can predict that the values for our testing dataframe are:
+[1] B A B A A E D B A A B C B A E E A B B B
+
+## Conclusion
+We use three models to validate wich one could get us better results and prediction so we could apply it to the test data and get the correct answers.  
+
+The results by Random Forest were highly accurate on the testing set and they proved to be better than the Regression Tree for this data sets.  The benefit of this model is its accuracy, but it excecution is too slow, so this is the cons we found on it.
+
+## File Creation for 2nd Part of the Projects
+```{r}
+pml_write_files = function(x){
+  n = length(x)
+  for(i in 1:n){
+    filename = paste0("problem_id_",i,".txt")
+    write.table(x[i],file=filename,quote=FALSE,row.names=FALSE,col.names=FALSE)
+  }
+}
+
+pml_write_files(predictions)
+```
